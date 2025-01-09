@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: mimicgen_rel
+  - task: franka3rgb #mimicgen_rel
 
 name: equi_diff
 _target_: equi_diffpo.workspace.train_equi_workspace.TrainEquiWorkspace
@@ -11,17 +11,30 @@ exp_name: "default"
 task_name: stack_d1
 n_demo: 200
 horizon: 16
-n_obs_steps: 2
+n_obs_steps: 1
 n_action_steps: 8
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 past_action_visible: False
-dataset: equi_diffpo.dataset.robomimic_replay_image_sym_dataset.RobomimicReplayImageSymDataset
-dataset_path: data/robomimic/datasets/${task_name}/${task_name}.hdf5
+#dataset: equi_diffpo.dataset.robomimic_replay_image_sym_dataset.RobomimicReplayImageSymDataset
+#dataset_path: data/robomimic/datasets/${task_name}/${task_name}.hdf5
+dataset: equi_diffpo.dataset.real_dataset.EpisodicDataset
+dataset_path: /home/wxh/project/equidiff/custom_dataset/upright_cup
+robot_infor:
+    # camera_sensors: ['rgb_images','depth_images']
+    camera_sensors: ['rgb_images']
+    camera_names : ['camera_left', 'camera_right', 'camera_top']
+
+    arms : ['puppet']
+    controls : ['joint_position', 'end_effector']
+                # 'joint_velocity_left', 'joint_velocity_right', 'joint_effort_left', 'joint_effort_right'
+    use_robot_base: False
+exp_type: franka_3rgb
+
 
 policy:
-  _target_: equi_diffpo.policy.diffusion_equi_unet_cnn_enc_rel_policy.DiffusionEquiUNetCNNEncRelPolicy
-
+  #_target_: equi_diffpo.policy.diffusion_equi_unet_cnn_enc_rel_policy.DiffusionEquiUNetCNNEncRelPolicy
+  _target_: equi_diffpo.policy.diffusion_equi_unet_cnn_enc_rel_real_policy.DiffusionEquiUNetCNNEncRelPolicy
   shape_meta: ${shape_meta}
   
   noise_scheduler:
@@ -82,12 +95,12 @@ optimizer:
 training:
   device: "cuda:0"
   seed: 0
-  debug: False
+  debug: True
   resume: True
   # optimization
   lr_scheduler: cosine
-  lr_warmup_steps: 500
-  num_epochs: ${eval:'50000 / ${n_demo}'}
+  lr_warmup_steps: 5 #500
+  num_epochs: ${eval:'5000 / ${n_demo}'} #50000
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
@@ -115,7 +128,7 @@ logging:
 
 checkpoint:
   topk:
-    monitor_key: test_mean_score
+    #monitor_key: test_mean_score
     mode: max
     k: 5
     format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'

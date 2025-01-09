@@ -14,8 +14,8 @@ try:
         raise ImportError("CropRandomizer is not in robomimic.models.base_nets")
 except ImportError:
     import robomimic.models.obs_core as rmbn
-from equi_diffpo.model.equi.equi_obs_encoder import EquivariantObsEnc
-from equi_diffpo.model.equi.equi_conditional_unet1d_vel import EquiDiffusionUNetVel
+from equi_diffpo.model.equi.equi_real_obs_encoder import EquivariantMultiObsEnc
+from equi_diffpo.model.equi.equi_conditional_unet1d_real import EquiDiffusionUNetVel
 
 
 class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
@@ -44,11 +44,11 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
         # parse shape_meta
         action_shape = shape_meta['action']['shape']
         assert len(action_shape) == 1
-        action_dim = 13 # 3 + 9 + 1
-        obs_shape_meta = shape_meta['obs']
+        action_dim = action_shape[0]
+        obs_shape_meta = shape_meta['obs']['rgb']
         
-        self.enc = EquivariantObsEnc(
-            obs_shape=obs_shape_meta['agentview_image']['shape'], 
+        self.enc = EquivariantMultiObsEnc(
+            obs_shape=obs_shape_meta['camera_left']['shape'], 
             crop_shape=crop_shape, 
             n_hidden=enc_n_hidden, 
             N=N)
@@ -161,7 +161,9 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
         """
         assert 'past_action' not in obs_dict # not implemented yet
         # normalize input
-        nobs = self.normalizer.normalize(obs_dict)
+        #nobs = self.normalizer.normalize(obs_dict)
+        nobs = obs_dict
+
         value = next(iter(nobs.values()))
         B, To = value.shape[:2]
         T = self.horizon
@@ -193,15 +195,14 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
             global_cond=global_cond,
             **self.kwargs)
         
-        axisangle = self.axisangle_to_matrix.inverse(nsample[:, :, 3:12].reshape(B, T, 3, 3))
-        nsample = torch.cat([nsample[:, :, :3], axisangle, nsample[:, :, -1:]], dim=-1)
+        # axisangle = self.axisangle_to_matrix.inverse(nsample[:, :, 3:12].reshape(B, T, 3, 3))
+        # nsample = torch.cat([nsample[:, :, :3], axisangle, nsample[:, :, -1:]], dim=-1)
 
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
-        print(f"naction_pred size is:{naction_pred.size()}")
-        action_pred = self.normalizer['action'].unnormalize(naction_pred)
-        print(f"action_pred size is:{action_pred.size()}")
-
+        #print(f"naction_pred size is:{naction_pred.size()}")
+        #action_pred = self.normalizer['action'].unnormalize(naction_pred)
+        action_pred = naction_pred
 
         # get action
         start = To - 1
@@ -221,15 +222,18 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
     def compute_loss(self, batch):
         # normalize input
         assert 'valid_mask' not in batch
-        nobs = self.normalizer.normalize(batch['obs'])
-        nactions = self.normalizer['action'].normalize(batch['action'])
-        print(f"2 action size: {nactions.size()}")
+        #nobs = self.normalizer.normalize(batch['obs'])
+        nobs = batch['obs']
+        
+        #nactions = self.normalizer['action'].normalize(batch['action'])
+        nactions = batch['action']
+        
         B = nactions.shape[0]
         T = nactions.shape[1]
 
-        axisangle = nactions[:, :, 3:6]
-        matrix = self.axisangle_to_matrix.forward(axisangle).reshape(B, T, 9)
-        nactions = torch.cat([nactions[:, :, :3], matrix, nactions[:, :, -1:]], dim=-1)
+        # axisangle = nactions[:, :, 3:6]
+        # matrix = self.axisangle_to_matrix.forward(axisangle).reshape(B, T, 9)
+        # nactions = torch.cat([nactions[:, :, :3], matrix, nactions[:, :, -1:]], dim=-1)
 
         # handle different ways of passing observation
         local_cond = None
@@ -242,6 +246,7 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
         nobs_features = self.enc(nobs)
         # reshape back to B, Do
         global_cond = nobs_features.reshape(B, -1)
+
 
         # generate impainting mask
         condition_mask = self.mask_generator(trajectory.shape)
@@ -266,8 +271,7 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
         noisy_trajectory[condition_mask] = cond_data[condition_mask]
         
         # Predict the noise residual
-        pred = self.diff(noisy_trajectory, timesteps, 
-            local_cond=local_cond, global_cond=global_cond)
+        pred = self.diff(noisy_trajectory, timesteps, local_cond=local_cond, global_cond=global_cond)
 
         pred_type = self.noise_scheduler.config.prediction_type 
         if pred_type == 'epsilon':

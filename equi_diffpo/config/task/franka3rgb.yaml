@@ -1,0 +1,30 @@
+name: real_image
+
+image_shape: [3, 480, 640]
+dataset_path: ["/home/wxh/project/equidiff/custom_dataset/upright_cup"]  # data/pusht_real/real_pusht_20230105
+# dataset_path: ["/media/data/h5_franka_3rgb/241021_insert_marker_1/success_episodes/"]
+val_dataset_path: ["/home/wxh/project/equidiff/custom_dataset/upright_cup"]
+shape_meta: &shape_meta
+  # acceptable types: rgb, low_dim
+  obs:
+    rgb:
+      camera_left:
+        shape: ${task.image_shape}
+        type: rgb
+      camera_right:
+        shape: ${task.image_shape}
+        type: rgb
+      camera_top:
+        shape: ${task.image_shape}
+        type: rgb
+    low_dim:
+      joint_position:
+        shape: [8]
+        type: low_dim
+
+  action: 
+    shape: [8]  # 3(x, y, z) + 3(p, y, r) + 1(b)
+
+env_runner:
+  _target_: equi_diffpo.env_runner.real_runner.RealPushTImageRunner
+

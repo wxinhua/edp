@@ -151,3 +151,63 @@ class SequenceSampler:
                 data[sample_start_idx:sample_end_idx] = sample
             result[key] = data
         return result
+
+
+# class SequenceSampler:
+#     def __init__(self, 
+#         dataset,  # 这里接受一个数据集对象，而不是 ReplayBuffer
+#         sequence_length: int,
+#         pad_before: int = 0,
+#         pad_after: int = 0,
+#         keys=None,
+#         key_first_k=dict(),
+#         episode_mask: Optional[np.ndarray] = None,
+#     ):
+#         super().__init__()
+#         assert(sequence_length >= 1)
+#         if keys is None:
+#             keys = list(dataset.rgb_keys + dataset.lowdim_keys)  # 从数据集获取键
+        
+#         # 假设数据集有一个方法可以返回样本数量
+#         n_samples = len(dataset)
+#         episode_ends = np.arange(0, n_samples, sequence_length)  # 生成样本结束索引
+#         if episode_mask is None:
+#             episode_mask = np.ones(episode_ends.shape, dtype=bool)
+
+#         if np.any(episode_mask):
+#             indices = self.create_indices(episode_ends, 
+#                 sequence_length=sequence_length, 
+#                 pad_before=pad_before, 
+#                 pad_after=pad_after,
+#                 episode_mask=episode_mask
+#             )
+#         else:
+#             indices = np.zeros((0, 4), dtype=np.int64)
+
+#         self.indices = indices 
+#         self.keys = list(keys)
+#         self.dataset = dataset  # 保存数据集对象
+#         self.sequence_length = sequence_length
+#         self.key_first_k = key_first_k
+
+#     def create_indices(self, episode_ends, sequence_length, pad_before, pad_after, episode_mask):
+#         # 生成索引的逻辑
+#         indices = []
+#         for i in range(len(episode_ends)):
+#             if not episode_mask[i]:
+#                 continue
+#             start_idx = episode_ends[i]
+#             end_idx = min(start_idx + sequence_length, len(self.dataset))  # 确保不超出范围
+#             indices.append((start_idx, end_idx))
+#         return np.array(indices)
+
+#     def __len__(self):
+#         return len(self.indices)
+        
+#     def sample_sequence(self, idx):
+#         buffer_start_idx, buffer_end_idx = self.indices[idx]
+#         result = dict()
+#         for key in self.keys:
+#             # 从数据集中提取数据
+#             result[key] = self.dataset[key][buffer_start_idx:buffer_end_idx]  # 假设数据集支持索引
+#         return result
