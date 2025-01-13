@@ -11,14 +11,14 @@ class EquiDiffusionUNetVel(torch.nn.Module):
     def __init__(self, act_emb_dim, local_cond_dim, global_cond_dim, diffusion_step_embed_dim, down_dims, kernel_size, n_groups, cond_predict_scale, N):
         super().__init__()
         self.unet = ConditionalUnet1D(
-            input_dim=act_emb_dim,
-            local_cond_dim=local_cond_dim,
-            global_cond_dim=global_cond_dim,
-            diffusion_step_embed_dim=diffusion_step_embed_dim,
-            down_dims=down_dims,
-            kernel_size=kernel_size,
-            n_groups=n_groups,
-            cond_predict_scale=cond_predict_scale
+            input_dim=act_emb_dim, #64
+            local_cond_dim=local_cond_dim, #None
+            global_cond_dim=global_cond_dim, #256
+            diffusion_step_embed_dim=diffusion_step_embed_dim, #128
+            down_dims=down_dims, #[512, 1024, 2048]
+            kernel_size=kernel_size, #5
+            n_groups=n_groups, #8
+            cond_predict_scale=cond_predict_scale #True
         )
         self.N = N
         self.group = gspaces.no_base_space(CyclicGroup(self.N))
@@ -31,19 +31,6 @@ class EquiDiffusionUNetVel(torch.nn.Module):
             nn.ReLU(self.act_type)
         )
 
-        # self.p = torch.tensor([
-        #     [1, 0, 0, 0, 1, 0, 0, 0, 0],
-        #     [0, -1, 0, 1, 0, 0, 0, 0, 0],
-        #     [0, 0, 0, 0, 0, 0, 0, 0, 1],
-        #     [0, 0, 1, 0, 0, 0, 0, 0, 0],
-        #     [0, 0, 0, 0, 0, 1, 0, 0, 0],
-        #     [0, 0, 0, 0, 0, 0, 1, 0, 0],
-        #     [0, 0, 0, 0, 0, 0, 0, 1, 0],
-        #     [0, 1, 0, 1, 0, 0, 0, 0, 0],
-        #     [-1, 0, 0, 0, 1, 0, 0, 0, 0]
-        # ]).float()
-        # self.p_inv = torch.linalg.inv(self.p)
-        # self.axisangle_to_matrix = RotationTransformer('axis_angle', 'matrix')
 
     def getOutFieldType(self):
         return nn.FieldType(
@@ -84,10 +71,20 @@ class EquiDiffusionUNetVel(torch.nn.Module):
             local_cond = rearrange(local_cond, "b t (c f) -> (b f) t c", f=self.order)
         if global_cond is not None:
             global_cond = rearrange(global_cond, "b (c f) -> (b f) c", f=self.order)
+        # print(f"enc_a_out shape:{enc_a_out.shape}")
+        # print(f"timestep shape:{timestep.shape}")
+        # print(f"global_cond shape:{global_cond.shape}")
+        
         out = self.unet(enc_a_out, timestep, local_cond, global_cond, **kwargs)
+        #print(f"1 out shape:{out.shape}")
         out = rearrange(out, "(b f) t c -> (b t) (c f)", f=self.order)
+        #print(f"2 out shape:{out.shape}")
         out = nn.GeometricTensor(out, self.act_type)
+        #print(f"3 out shape:{out.shape}")
         out = self.out_layer(out).tensor.reshape(B * T, -1)
+        #print(f"4 out shape:{out.shape}")
         out = self.getOutput(out)
+        #print(f"5 out shape:{out.shape}")
         out = rearrange(out, "(b t) n -> b t n", b=B)
+        #print(f"6 out shape:{out.shape}")
         return out

@@ -51,6 +51,7 @@ class ConditionalResidualBlock1D(nn.Module):
             returns:
             out : [ batch_size x out_channels x horizon ]
         '''
+        print(f"residualblock x shape is:{x.shape}")
         out = self.blocks[0](x)
         embed = self.cond_encoder(cond)
         if self.cond_predict_scale:
@@ -68,12 +69,12 @@ class ConditionalResidualBlock1D(nn.Module):
 
 class ConditionalUnet1D(nn.Module):
     def __init__(self, 
-        input_dim,
+        input_dim, #64
         local_cond_dim=None,
-        global_cond_dim=None,
-        diffusion_step_embed_dim=256,
-        down_dims=[256,512,1024],
-        kernel_size=3,
+        global_cond_dim=None, #256
+        diffusion_step_embed_dim=256, #128
+        down_dims=[256,512,1024], #[512, 1024, 2048]
+        kernel_size=3, #5
         n_groups=8,
         cond_predict_scale=False
         ):
@@ -81,16 +82,16 @@ class ConditionalUnet1D(nn.Module):
         all_dims = [input_dim] + list(down_dims)
         start_dim = down_dims[0]
 
-        dsed = diffusion_step_embed_dim
+        dsed = diffusion_step_embed_dim #128
         diffusion_step_encoder = nn.Sequential(
             SinusoidalPosEmb(dsed),
             nn.Linear(dsed, dsed * 4),
             nn.Mish(),
             nn.Linear(dsed * 4, dsed),
         )
-        cond_dim = dsed
+        cond_dim = dsed #128
         if global_cond_dim is not None:
-            cond_dim += global_cond_dim
+            cond_dim += global_cond_dim #384
 
         in_out = list(zip(all_dims[:-1], all_dims[1:]))
 
@@ -182,6 +183,7 @@ class ConditionalUnet1D(nn.Module):
         output: (B,T,input_dim)
         """
         sample = einops.rearrange(sample, 'b h t -> b t h')
+        print(f"sample shape:{sample.shape}")
 
         # 1. time
         timesteps = timestep
@@ -194,12 +196,13 @@ class ConditionalUnet1D(nn.Module):
         timesteps = timesteps.expand(sample.shape[0])
 
         global_feature = self.diffusion_step_encoder(timesteps)
+        #print(f"1 global_feature shape:{global_feature.shape}")
 
         if global_cond is not None:
             global_feature = torch.cat([
                 global_feature, global_cond
             ], axis=-1)
-        
+        #print(f"2 global_feature shape:{global_feature.shape}")
         # encode local features
         h_local = list()
         if local_cond is not None:
@@ -211,29 +214,40 @@ class ConditionalUnet1D(nn.Module):
             h_local.append(x)
         
         x = sample
+        #print(f"x shape:{x.shape}")
         h = []
         for idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):
             x = resnet(x, global_feature)
             if idx == 0 and len(h_local) > 0:
                 x = x + h_local[0]
             x = resnet2(x, global_feature)
+            #print(f"保存到 h 的张量形状：{x.shape}")
             h.append(x)
             x = downsample(x)
+            #print(f"downsample x shape:{x.shape}")
 
         for mid_module in self.mid_modules:
             x = mid_module(x, global_feature)
+            #print(f"mid module x shape:{x.shape}")
 
         for idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
+            #print(f"x 形状：{x.shape}, h.pop() 形状：{h[-1].shape}")
             x = torch.cat((x, h.pop()), dim=1)
+            #print(f"x shape:{x.shape}")
             x = resnet(x, global_feature)
+            #print(f"1 x shape:{x.shape}")
             # The correct condition should be:
             if idx == (len(self.up_modules)-1) and len(h_local) > 0:
             # However this change will break compatibility with published checkpoints.
             # Therefore it is left as a comment.
             # if idx == len(self.up_modules) and len(h_local) > 0:
                 x = x + h_local[1]
+                #print(f"2 x shape:{x.shape}")
             x = resnet2(x, global_feature)
+            #print(f"3 x shape:{x.shape}")
             x = upsample(x)
+            #print(f"4 x shape:{x.shape}")
+           
 
         x = self.final_conv(x)
 

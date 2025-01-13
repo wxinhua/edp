@@ -78,6 +78,7 @@ class EquivariantMultiObsEnc(ModuleAttrMixin):
         obs_2 = nobs["rgb"][:, 1]  # Second view
         obs_3 = nobs["rgb"][:, 2]  # Third view
         joint_pos = nobs["low_dim"]  # Shape: [batch_size, time, 8]
+        #joint_pos = joint_pos.unsqueeze(1)
 
         # Check dimensions for debugging
         # print(f"obs_1 shape: {obs_1.shape}, joint_pos shape: {joint_pos.shape}")
@@ -103,6 +104,11 @@ class EquivariantMultiObsEnc(ModuleAttrMixin):
         enc_out_2 = self.enc_obs(obs_2).tensor.reshape(batch_size * t, -1)  # b d
         enc_out_3 = self.enc_obs(obs_3).tensor.reshape(batch_size * t, -1)  # b d
         # print(f"enc out size is:{enc_out_1.size()}")
+        # print(f"enc_out_1 shape: {enc_out_1.shape}")
+        # print(f"enc_out_2 shape: {enc_out_2.shape}")
+        # print(f"enc_out_3 shape: {enc_out_3.shape}")
+        # print(f"joint_pos shape: {joint_pos.shape}")
+
         features = torch.cat(
             [
                 enc_out_1,

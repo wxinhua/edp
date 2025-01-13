@@ -229,6 +229,7 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
         nactions = batch['action']
         
         B = nactions.shape[0]
+        #print(f"batch is:{B}")
         T = nactions.shape[1]
 
         # axisangle = nactions[:, :, 3:6]
@@ -246,6 +247,7 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
         nobs_features = self.enc(nobs)
         # reshape back to B, Do
         global_cond = nobs_features.reshape(B, -1)
+        
 
 
         # generate impainting mask
@@ -272,7 +274,7 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
         
         # Predict the noise residual
         pred = self.diff(noisy_trajectory, timesteps, local_cond=local_cond, global_cond=global_cond)
-
+        #print(f"pred shape:{pred.shape}")
         pred_type = self.noise_scheduler.config.prediction_type 
         if pred_type == 'epsilon':
             target = noise
@@ -280,6 +282,7 @@ class DiffusionEquiUNetCNNEncRelPolicy(BaseImagePolicy):
             target = trajectory
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")
+        #print(f"target shape:{target.shape}")
 
         loss = F.mse_loss(pred, target, reduction='none')
         loss = loss * loss_mask.type(loss.dtype)
