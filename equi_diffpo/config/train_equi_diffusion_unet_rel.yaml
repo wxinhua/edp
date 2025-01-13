@@ -11,7 +11,7 @@ exp_name: "default"
 task_name: stack_d1
 n_demo: 200
 horizon: 16
-n_obs_steps: 1
+n_obs_steps: 2
 n_action_steps: 8
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
@@ -19,7 +19,7 @@ past_action_visible: False
 #dataset: equi_diffpo.dataset.robomimic_replay_image_sym_dataset.RobomimicReplayImageSymDataset
 #dataset_path: data/robomimic/datasets/${task_name}/${task_name}.hdf5
 dataset: equi_diffpo.dataset.real_dataset.EpisodicDataset
-dataset_path: /home/wxh/project/equidiff/custom_dataset/upright_cup
+dataset_path: /media/wk/IL_research/h5_franka_3rgb/241223_upright_cup
 robot_infor:
     # camera_sensors: ['rgb_images','depth_images']
     camera_sensors: ['rgb_images']
@@ -95,25 +95,26 @@ optimizer:
 training:
   device: "cuda:0"
   seed: 0
-  debug: True
+  debug: False
   resume: True
   # optimization
   lr_scheduler: cosine
-  lr_warmup_steps: 5 #500
-  num_epochs: ${eval:'5000 / ${n_demo}'} #50000
+  lr_warmup_steps: 500
+  #num_epochs: 200
+  train_steps: 5 
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
   use_ema: True
   # training loop control
   # in epochs
-  rollout_every: ${eval:'1000 / ${n_demo}'}
-  checkpoint_every: ${eval:'1000 / ${n_demo}'}
-  val_every: 1
-  sample_every: 5
+  rollout_every: 50
+  checkpoint_every: 2
+  val_every: 2
+  sample_every: 2
   # steps per epoch
   max_train_steps: null
-  max_val_steps: null
+  max_val_steps: 1
   # misc
   tqdm_interval_sec: 1.0
 
@@ -128,10 +129,10 @@ logging:
 
 checkpoint:
   topk:
-    #monitor_key: test_mean_score
+    monitor_key: train_loss
     mode: max
     k: 5
-    format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
+    format_str: 'step={global_step:04d}-train_loss={train_loss:.3f}.ckpt'
   save_last_ckpt: True
   save_last_snapshot: False
 

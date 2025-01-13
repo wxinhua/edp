@@ -59,7 +59,7 @@ class TrainEquiWorkspace(BaseWorkspace):
         assert total_params == sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         # configure training state
         self.global_step = 0
-        self.epoch = 0
+        #self.epoch = 0
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -70,7 +70,7 @@ class TrainEquiWorkspace(BaseWorkspace):
             if lastest_ckpt_path.is_file():
                 print(f"Resuming from checkpoint {lastest_ckpt_path}")
                 self.load_checkpoint(path=lastest_ckpt_path)
-                self.epoch += 1
+                #self.epoch += 1
                 self.global_step += 1
 
         # configure dataset
@@ -84,12 +84,12 @@ class TrainEquiWorkspace(BaseWorkspace):
         # # configure validation dataset
         # val_dataset = dataset.get_validation_dataset()
         # val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
-        train_dataloader, val_dataloader, _, num_batches_per_epoch= load_data(
+        train_dataloader, val_dataloader, _= load_data(
             dataset_dir_l=cfg.dataset_path,
             robot_infor=cfg.robot_infor,  
             batch_size_train=cfg.dataloader.batch_size,
             batch_size_val=cfg.val_dataloader.batch_size,
-            chunk_size=16,  
+            chunk_size=2,  
             use_depth_image=None,  
             sample_weights=None,  
             rank=None,  
@@ -99,6 +99,7 @@ class TrainEquiWorkspace(BaseWorkspace):
             exp_type=cfg.exp_type,  
             tg_mode="mode1"
         )
+        #print(f"num_batches_per_epoch is:{num_batches_per_epoch}")
         
         
 
@@ -111,7 +112,7 @@ class TrainEquiWorkspace(BaseWorkspace):
             cfg.training.lr_scheduler,
             optimizer=self.optimizer,
             num_warmup_steps=cfg.training.lr_warmup_steps,
-            num_training_steps= (num_batches_per_epoch * cfg.training.num_epochs) // cfg.training.gradient_accumulate_every,
+            num_training_steps= (cfg.training.train_steps) // cfg.training.gradient_accumulate_every,
             # num_training_steps=(
             #     len(train_dataloader) * cfg.training.num_epochs) \
             #         // cfg.training.gradient_accumulate_every,
@@ -174,147 +175,241 @@ class TrainEquiWorkspace(BaseWorkspace):
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         with JsonLogger(log_path) as json_logger:
-            while self.epoch < cfg.training.num_epochs:
-                step_log = dict()
+            step_log = dict()
+            while self.global_step < cfg.training.train_steps:
+                #step_log = dict()
                 # ========= train for this epoch ==========
                 train_losses = list()
-                with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
-                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
-                    for batch_idx, batch in enumerate(tepoch):
-                        # # 打印每个batch的键
-                        #print(batch.keys())
-                        # # 打印obs的内容和类型
-                        # print(f"obs content: {batch['obs']}, type: {type(batch['obs'])}")
-                        # # 如果需要查看obs的键和大小
-                        #print(f"obs keys: {batch['obs'].keys()}, obs size: {len(batch['obs'])}")
-                        #print(f"1 action size: {batch['action'].size()}")
-                        # device transfer
-                        batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                        if train_sampling_batch is None:
-                            train_sampling_batch = batch
-
-                        # compute loss
-                        raw_loss = self.model.compute_loss(batch)
-                        loss = raw_loss / cfg.training.gradient_accumulate_every
-                        loss.backward()
-
-                        # step optimizer
-                        if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                            self.optimizer.step()
-                            self.optimizer.zero_grad()
-                            lr_scheduler.step()
-                        
-                        # update ema
-                        if cfg.training.use_ema:
-                            ema.step(self.model)
-
-                        # logging
-                        raw_loss_cpu = raw_loss.item()
-                        tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
-                        train_losses.append(raw_loss_cpu)
-                        step_log = {
-                            'train_loss': raw_loss_cpu,
-                            'global_step': self.global_step,
-                            'epoch': self.epoch,
-                            'lr': lr_scheduler.get_last_lr()[0]
-                        }
-
-                        #is_last_batch = (batch_idx == (len(train_dataloader)-1))
-                        is_last_batch = (batch_idx == (num_batches_per_epoch - 1))
-                        if not is_last_batch:
-                            # log of last step is combined with validation and rollout
-                            # wandb_run.log(step_log, step=self.global_step)
-                            json_logger.log(step_log)
-                            self.global_step += 1
-
-                        if (cfg.training.max_train_steps is not None) \
-                            and batch_idx >= (cfg.training.max_train_steps-1):
-                            break
-
-                # at the end of each epoch
-                # replace train_loss with epoch average
-                train_loss = np.mean(train_losses)
-                step_log['train_loss'] = train_loss
-
-                # ========= eval for this epoch ==========
+                # with tqdm.tqdm(train_dataloader, desc=f"Training step {self.global_step}", 
+                #         leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                 policy = self.model
-                if cfg.training.use_ema:
-                    policy = self.ema_model
-                policy.eval()
+                if (self.global_step != 0) and (self.global_step % cfg.training.val_every):
+                    # train_loss = np.mean(train_losses)
+                    # step_log['train_loss'] = train_loss
+                    print("here 1")
+                        # ========= eval for this epoch ==========
+                    policy = self.model
+                    if cfg.training.use_ema:
+                        policy = self.ema_model
+                    policy.eval()
 
-                # run rollout
-                if (self.epoch % cfg.training.rollout_every) == 0:
-                    runner_log = env_runner.run(policy)
-                    # log all
-                    step_log.update(runner_log)
+                    # run rollout
+                    # if (self.global_step % cfg.training.rollout_every) == 0:
+                    #     runner_log = env_runner.run(policy)
+                    #     # log all
+                    #     step_log.update(runner_log)
 
-                # run validation
-                if (self.epoch % cfg.training.val_every) == 0:
-                    with torch.no_grad():
-                        val_losses = list()
-                        with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
-                                leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
-                            for batch_idx, batch in enumerate(tepoch):
+                    # run validation
+                    if (self.global_step % cfg.training.val_every) == 0:
+        
+                        with torch.no_grad():
+                            val_losses = list()
+                            # with tqdm.tqdm(val_dataloader, desc=f"Validation step {self.global_step}", 
+                            #         leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                            for batch_idx, batch in enumerate(val_dataloader):
+                                
+                                print(f"val step:{batch_idx}")
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                                 loss = self.model.compute_loss(batch)
                                 val_losses.append(loss)
-                                if (cfg.training.max_val_steps is not None) \
-                                    and batch_idx >= (cfg.training.max_val_steps-1):
+                                # if (cfg.training.max_val_steps is not None) \
+                                #     and batch_idx >= (cfg.training.max_val_steps-1):
+                                #     break
+                                if batch_idx >= cfg.training.max_val_steps:
                                     break
-                        if len(val_losses) > 0:
-                            val_loss = torch.mean(torch.tensor(val_losses)).item()
-                            # log epoch average validation loss
-                            step_log['val_loss'] = val_loss
+                            if len(val_losses) > 0:
+                                val_loss = torch.mean(torch.tensor(val_losses)).item()
+                                # log epoch average validation loss
+                                step_log['val_loss'] = val_loss
+                                print(f"val loss:{val_loss}")
 
-                # run diffusion sampling on a training batch
-                if (self.epoch % cfg.training.sample_every) == 0:
-                    with torch.no_grad():
-                        # sample trajectory from training set, and evaluate difference
-                        batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
-                        obs_dict = batch['obs']
-                        gt_action = batch['action']
-                        
-                        result = policy.predict_action(obs_dict)
-                        pred_action = result['action_pred']
-                        mse = torch.nn.functional.mse_loss(pred_action, gt_action)
-                        step_log['train_action_mse_error'] = mse.item()
-                        del batch
-                        del obs_dict
-                        del gt_action
-                        del result
-                        del pred_action
-                        del mse
-                
-                # checkpoint
-                if (self.epoch % cfg.training.checkpoint_every) == 0:
-                    # checkpointing
-                    if cfg.checkpoint.save_last_ckpt:
-                        self.save_checkpoint()
-                    if cfg.checkpoint.save_last_snapshot:
-                        self.save_snapshot()
-
-                    # sanitize metric names
-                    metric_dict = dict()
-                    for key, value in step_log.items():
-                        new_key = key.replace('/', '_')
-                        metric_dict[new_key] = value
+                    # run diffusion sampling on a training batch
+                    if (self.global_step % cfg.training.sample_every) == 0:
+                        with torch.no_grad():
+                            # sample trajectory from training set, and evaluate difference
+                            batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
+                            obs_dict = batch['obs']
+                            gt_action = batch['action']
+                            
+                            result = policy.predict_action(obs_dict)
+                            pred_action = result['action_pred']
+                            mse = torch.nn.functional.mse_loss(pred_action, gt_action)
+                            step_log['train_action_mse_error'] = mse.item()
+                            del batch
+                            del obs_dict
+                            del gt_action
+                            del result
+                            del pred_action
+                            del mse
                     
-                    # We can't copy the last checkpoint here
-                    # since save_checkpoint uses threads.
-                    # therefore at this point the file might have been empty!
-                    topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                    # checkpoint
+                    if (self.global_step % cfg.training.checkpoint_every) == 0:
+                        # checkpointing
+                        if cfg.checkpoint.save_last_ckpt:
+                            self.save_checkpoint()
+                        if cfg.checkpoint.save_last_snapshot:
+                            self.save_snapshot()
 
-                    if topk_ckpt_path is not None:
-                        self.save_checkpoint(path=topk_ckpt_path)
+                        # sanitize metric names
+                        metric_dict = dict()
+                        for key, value in step_log.items():
+                            new_key = key.replace('/', '_')
+                            metric_dict[new_key] = value
+                        
+                        # We can't copy the last checkpoint here
+                        # since save_checkpoint uses threads.
+                        # therefore at this point the file might have been empty!
+                        topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+
+                        if topk_ckpt_path is not None:
+                            self.save_checkpoint(path=topk_ckpt_path)
+
+
+                for batch_idx, batch in enumerate(train_dataloader):
+                    print(f"training step:{self.global_step}")
+                    policy.train()
+                    # # 打印每个batch的键
+                    #print(batch.keys())
+                    # # 打印obs的内容和类型
+                    # print(f"obs content: {batch['obs']}, type: {type(batch['obs'])}")
+                    # # 如果需要查看obs的键和大小
+                    #print(f"obs keys: {batch['obs'].keys()}, obs size: {len(batch['obs'])}")
+                    #print(f"1 action size: {batch['action'].size()}")
+                    # device transfer
+                    batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                    if train_sampling_batch is None:
+                        train_sampling_batch = batch
+
+                    # compute loss
+                    raw_loss = self.model.compute_loss(batch)
+                    loss = raw_loss / cfg.training.gradient_accumulate_every
+                    loss.backward()
+
+                    # step optimizer
+                    if self.global_step % cfg.training.gradient_accumulate_every == 0:
+                        self.optimizer.step()
+                        self.optimizer.zero_grad()
+                        lr_scheduler.step()
+                    
+                    # update ema
+                    if cfg.training.use_ema:
+                        ema.step(self.model)
+
+                    # logging
+                    raw_loss_cpu = raw_loss.item()
+                    #tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
+                    print(f"train_loss: {raw_loss_cpu}")
+                    train_losses.append(raw_loss_cpu)
+                    step_log = {
+                        'train_loss': raw_loss_cpu,
+                        'global_step': self.global_step,
+                        #'epoch': self.epoch,
+                        'lr': lr_scheduler.get_last_lr()[0]
+                    }
+
+                    
+                    json_logger.log(step_log)
+                    if batch_idx >= cfg.training.val_every:
+                        train_loss = np.mean(train_losses)
+                        step_log['train_loss'] = train_loss
+                        break
+                    self.global_step += 1
+                        #is_last_batch = (batch_idx == (len(train_dataloader)-1))
+                        # is_last_batch = (batch_idx == (num_batches_per_epoch - 1))
+                        # if not is_last_batch:
+                        #     # log of last step is combined with validation and rollout
+                        #     # wandb_run.log(step_log, step=self.global_step)
+                        #     json_logger.log(step_log)
+                        #     self.global_step += 1
+
+                        # if (cfg.training.max_train_steps is not None) \
+                        #     and batch_idx >= (cfg.training.max_train_steps-1):
+                        #     break
+
+                # # at the end of each epoch
+                # # replace train_loss with epoch average
+                # train_loss = np.mean(train_losses)
+                # step_log['train_loss'] = train_loss
+
+                # # ========= eval for this epoch ==========
+                # policy = self.model
+                # if cfg.training.use_ema:
+                #     policy = self.ema_model
+                # policy.eval()
+
+                # # run rollout
+                # if (self.global_step % cfg.training.rollout_every) == 0:
+                #     runner_log = env_runner.run(policy)
+                #     # log all
+                #     step_log.update(runner_log)
+
+                # # run validation
+                # if (self.global_step % cfg.training.val_every) == 0:
+                #     with torch.no_grad():
+                #         val_losses = list()
+                #         with tqdm.tqdm(val_dataloader, desc=f"Validation step {self.global_step}", 
+                #                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                #             for batch_idx, batch in enumerate(tepoch):
+                #                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                #                 loss = self.model.compute_loss(batch)
+                #                 val_losses.append(loss)
+                #                 if (cfg.training.max_val_steps is not None) \
+                #                     and batch_idx >= (cfg.training.max_val_steps-1):
+                #                     break
+                #         if len(val_losses) > 0:
+                #             val_loss = torch.mean(torch.tensor(val_losses)).item()
+                #             # log epoch average validation loss
+                #             step_log['val_loss'] = val_loss
+
+                # # run diffusion sampling on a training batch
+                # if (self.global_step % cfg.training.sample_every) == 0:
+                #     with torch.no_grad():
+                #         # sample trajectory from training set, and evaluate difference
+                #         batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
+                #         obs_dict = batch['obs']
+                #         gt_action = batch['action']
+                        
+                #         result = policy.predict_action(obs_dict)
+                #         pred_action = result['action_pred']
+                #         mse = torch.nn.functional.mse_loss(pred_action, gt_action)
+                #         step_log['train_action_mse_error'] = mse.item()
+                #         del batch
+                #         del obs_dict
+                #         del gt_action
+                #         del result
+                #         del pred_action
+                #         del mse
+                
+                # # checkpoint
+                # if (self.global_step % cfg.training.checkpoint_every) == 0:
+                #     # checkpointing
+                #     if cfg.checkpoint.save_last_ckpt:
+                #         self.save_checkpoint()
+                #     if cfg.checkpoint.save_last_snapshot:
+                #         self.save_snapshot()
+
+                #     # sanitize metric names
+                #     metric_dict = dict()
+                #     for key, value in step_log.items():
+                #         new_key = key.replace('/', '_')
+                #         metric_dict[new_key] = value
+                    
+                #     # We can't copy the last checkpoint here
+                #     # since save_checkpoint uses threads.
+                #     # therefore at this point the file might have been empty!
+                #     topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+
+                #     if topk_ckpt_path is not None:
+                #         self.save_checkpoint(path=topk_ckpt_path)
                 # ========= eval end for this epoch ==========
-                policy.train()
+                # policy.train()
 
                 # end of epoch
                 # log of last step is combined with validation and rollout
                 #wandb_run.log(step_log, step=self.global_step)
-                json_logger.log(step_log)
-                self.global_step += 1
-                self.epoch += 1
+                #json_logger.log(step_log)
+                #self.global_step += 1
+                #self.epoch += 1
 
 @hydra.main(
     version_base=None,

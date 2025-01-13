@@ -78,16 +78,18 @@ class ReadH5Files():
                             image_dict[self.camera_sensors[0]][cam_name] = decode_rgb
                             image_dict[self.camera_sensors[1]][cam_name] = decode_depth
                         else:
-                            # x = self.camera_sensors[0]
-                            # y = cam_name
-                            # z = camera_frame
-                            # print(f"x: {x}")
-                            # print(f"y: {y}")
-                            # print(f"z: {z}")
+                            decode_rgb_prev=None
                             decode_rgb, decode_depth = self.decoder_image(
                                 camera_rgb_images=root['observations'][self.camera_sensors[0]][cam_name][camera_frame],
                                 camera_depth_images=None)
-                            image_dict[self.camera_sensors[0]][cam_name] = decode_rgb
+                            if camera_frame > 0:
+                                decode_rgb_prev, _ = self.decoder_image(
+                                    camera_rgb_images=root['observations'][self.camera_sensors[0]][cam_name][camera_frame - 1],
+                                    camera_depth_images=None
+                                )
+                            image_dict[self.camera_sensors[0]][cam_name] = {
+                                'current':decode_rgb,
+                                'previous':decode_rgb_prev}
                     else:
                         if use_depth_image:
                             decode_rgb, decode_depth = self.decoder_image(

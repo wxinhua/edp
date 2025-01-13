@@ -149,7 +149,7 @@ class EpisodicDataset(torch.utils.data.Dataset):
 
         dataset_path = self.dataset_path_list[episode_id]
         
-        image_dict, control_dict, base_dict, _, is_compress = self.read_h5files.execute(dataset_path, camera_frame=start_ts, use_depth_image=self.use_depth_image)
+        image_dict, control_dict, _, _, _ = self.read_h5files.execute(dataset_path, camera_frame=start_ts, use_depth_image=self.use_depth_image)
 
         if self.use_raw_lang:
             lang_raw = self.path2string_dict[dataset_path]
@@ -203,17 +203,10 @@ class EpisodicDataset(torch.utils.data.Dataset):
         episode_len = original_action_shape[0]
         # get observation at start_ts only
         # qpos = action[start_ts]
-        time_steps = 1
-        obs_start_ts = min(start_ts, episode_len - time_steps)
-
-        #qpos = qpos[start_ts]
-        qpos_sequence = qpos[obs_start_ts:obs_start_ts + time_steps]
-
-        qpos_len = qpos_sequence.shape[0]
-        if qpos_len < time_steps:
-            padded_qpos = np.zeros((time_steps, qpos_sequence.shape[1]), dtype=np.float32)
-            padded_qpos[:qpos_len] = qpos_sequence
-            qpos_sequence = padded_qpos
+        
+        cur_qpos = qpos[start_ts]
+        prev_qpos = qpos[start_ts - 1] if start_ts > 0 else np.zeros_like(cur_qpos)
+        combined_qpos = np.stack((cur_qpos, prev_qpos), axis=0)
 
         # for real-world exp
         action = action[max(0, start_ts - 1):]  # hack, to make timesteps more aligned
@@ -246,33 +239,25 @@ class EpisodicDataset(torch.utils.data.Dataset):
         # os.makedirs(img_dir, exist_ok=True)
 
         for cam_name in self.robot_infor['camera_names']:
-            # print(f"cam_name: {cam_name}")
-            cam_images = []
-            for t in range(time_steps):
-                cur_img = image_dict[self.robot_infor['camera_sensors'][0]][cam_name]
-                if self.resize_images:
-                    cur_img = cv2.resize(cur_img, dsize=self.new_size)
-                if self.exp_type in ['franka_3rgb', 'franka_1rgb', 'ur_1rgb', 'simulation_4rgb']:
-                    cur_img = cur_img[:, :, ::-1]  # Convert to RGB
-                cam_images.append(cur_img)
-            all_cam_images.append(np.stack(cam_images, axis=0))  # Stack across time dimension
-            # cur_img = image_dict[self.robot_infor['camera_sensors'][0]][cam_name]
-            # # print(f'1 cur_img size: {cur_img.shape}')
-            # # todo
-            # if self.resize_images:
-            #     cur_img = cv2.resize(cur_img, dsize=self.new_size)
-            #     # 2 cur_img size: (480, 640, 3)
-            #     # print(f'2 cur_img size: {cur_img.shape}')
-            # if self.exp_type in ['franka_3rgb', 'franka_1rgb', 'ur_1rgb', 'simulation_4rgb']:
-            #     cur_img = cur_img[:, :, ::-1]
+            
+            cur_img = image_dict[self.robot_infor['camera_sensors'][0]][cam_name]['current']
+            prev_img = image_dict[self.robot_infor['camera_sensors'][0]][cam_name]['previous']
+            if prev_img is None:
+                prev_img = np.zeros_like(cur_img)
+            # print(f'1 cur_img size: {cur_img.shape}')
+            # todo
+            if self.resize_images:
+                cur_img = cv2.resize(cur_img, dsize=self.new_size)
+                prev_img = cv2.resize(prev_img, dsize=self.new_size)
+                # 2 cur_img size: (480, 640, 3)
+                # print(f'2 cur_img size: {cur_img.shape}')
+            if self.exp_type in ['franka_3rgb', 'franka_1rgb', 'ur_1rgb', 'simulation_4rgb']:
+                cur_img = cur_img[:, :, ::-1]
+                prev_img = prev_img[:, :, ::-1]
 
-            ## only for check RGB channel order
-            # if self.tmp_cnt < 10:
-            #     img = Image.fromarray((cur_img).astype(np.uint8))
-            #     img.save(os.path.join(img_dir, str(self.tmp_cnt)+'_rgb.png'))
-            # self.tmp_cnt += 1
+            combined_img = np.stack((cur_img, prev_img), axis=0)
 
-            # all_cam_images.append(cur_img) # rgb
+            all_cam_images.append(combined_img) # rgb
 
             # print_memory_info(process, 6)
             if self.use_depth_image:
@@ -293,14 +278,15 @@ class EpisodicDataset(torch.utils.data.Dataset):
         all_cam_images = np.stack(all_cam_images, axis=0)
         all_cam_depths = np.stack(all_cam_depths, axis=0)
         all_cam_images = (all_cam_images / 255.0).astype(np.float32)
-
+        all_cam_images = all_cam_images * 2 - 1
         image_data = torch.from_numpy(all_cam_images)
+        
 
         all_cam_depths = all_cam_depths.astype(np.float32)
-        depth_data = torch.from_numpy(all_cam_depths)
+        #depth_data = torch.from_numpy(all_cam_depths)
 
         #qpos_data = torch.from_numpy(qpos).float()
-        qpos_data = torch.from_numpy(qpos_sequence).float()
+        qpos_data = torch.from_numpy(combined_qpos).float()
         action_data = torch.from_numpy(padded_action).float()
         is_pad = torch.from_numpy(is_pad).bool()
         image_data = torch.einsum('k t h w c -> k t c h w', image_data)
@@ -325,10 +311,10 @@ class EpisodicDataset(torch.utils.data.Dataset):
             # normalize to mean 0 std 1
             action_data = (action_data - self.norm_stats["action_mean"]) / self.norm_stats["action_std"]
         
-        qpos_data = (qpos_data - self.norm_stats["qpos_mean"]) / self.norm_stats["qpos_std"]
+        qpos_data = ((qpos_data - self.norm_stats["qpos_min"]) / (self.norm_stats["qpos_max"] - self.norm_stats["qpos_min"])) * 2 - 1
 
         # lang_embed = control_dict['language_distilbert']
-        lang_embed = torch.zeros(1)
+        #lang_embed = torch.zeros(1)
 
         # print_memory_info(process, 9)
         # print(f"=============+++++++++++")
@@ -363,7 +349,7 @@ def get_files(dataset_dir, robot_infor):
     files = []
     for trajectory_id in sorted(os.listdir(dataset_dir)):
         trajectory_dir = os.path.join(dataset_dir, trajectory_id)
-        file_path = os.path.join(trajectory_dir, 'trajectory.hdf5')
+        file_path = os.path.join(trajectory_dir, 'data/trajectory.hdf5')
         try:
             _, control_dict, base_dict, _, is_compress = read_h5files.execute(file_path, camera_frame=2)
             files.append(file_path)
@@ -515,10 +501,6 @@ def BatchSampler(batch_size, episode_len_l, sample_weights):
     # print(f"BatchSampler episode_len_l: {episode_len_l}")
     # print(f"BatchSampler len episode_len_l: {len(episode_len_l)}")
     # print(f"BatchSampler sum_dataset_len_l: {sum_dataset_len_l}")
-     # 计算总样本数
-    num_samples = sum(len(episode_len) for episode_len in episode_len_l)
-    # 计算批次数量
-    num_batches = (num_samples + batch_size - 1) // batch_size
 
     def batch_generator():
         while True:
@@ -529,7 +511,7 @@ def BatchSampler(batch_size, episode_len_l, sample_weights):
                 batch.append(step_idx)
             yield batch
 
-    return batch_generator(), num_batches
+    return batch_generator()
 
 
 class DistributedBatchSampler(torch.utils.data.Sampler):
@@ -693,16 +675,16 @@ def load_data(dataset_dir_l, robot_infor, batch_size_train, batch_size_val, chun
     if torch.cuda.device_count() == 1:
         #batch_sampler_train = BatchSampler(batch_size_train, train_episode_len_l, sample_weights)
         #batch_sampler_val = BatchSampler(batch_size_val, val_episode_len_l, None)
-        batch_sampler_train, num_batches_per_epoch = BatchSampler(batch_size_train, train_episode_len_l, sample_weights)
-        batch_sampler_val, _ = BatchSampler(batch_size_val, val_episode_len_l, None)
+        batch_sampler_train = BatchSampler(batch_size_train, train_episode_len_l, sample_weights)
+        batch_sampler_val = BatchSampler(batch_size_val, val_episode_len_l, None)
         # construct dataset and dataloader
         train_dataset = EpisodicDataset(train_dataset_path_fla_list, robot_infor, norm_stats, train_episode_ids, train_episode_len, chunk_size, rank=rank, use_data_aug=use_data_aug, act_norm_class=act_norm_class, use_raw_lang=use_raw_lang, use_depth_image=use_depth_image, exp_type=exp_type, tg_mode=tg_mode)
         val_dataset = EpisodicDataset(val_dataset_path_fla_list, robot_infor, norm_stats, val_episode_ids, val_episode_len, chunk_size, rank=rank, use_data_aug=use_data_aug, act_norm_class=act_norm_class, use_raw_lang=use_raw_lang, use_depth_image=use_depth_image, exp_type=exp_type, tg_mode=tg_mode)
 
         # train_num_workers = 0
-        train_num_workers = 12 #4 #4 #16
+        train_num_workers = 4 #4 #4 #16
         # val_num_workers = 0
-        val_num_workers = 12 #4 #4 #16
+        val_num_workers = 8 #4 #4 #16
         print(f'Augment images: {train_dataset.augment_images}, train_num_workers: {train_num_workers}, val_num_workers: {val_num_workers}')
         # logger.info(f'Augment images: {train_dataset.augment_images}, train_num_workers: {train_num_workers}, val_num_workers: {val_num_workers}')
         # pin_memory=True
@@ -731,7 +713,7 @@ def load_data(dataset_dir_l, robot_infor, batch_size_train, batch_size_val, chun
             val_dataset, 
             batch_sampler=batch_sampler_val, pin_memory=True, num_workers=val_num_workers)
         
-    return train_dataloader, val_dataloader, norm_stats, num_batches_per_epoch
+    return train_dataloader, val_dataloader, norm_stats
 
 
 ### helper functions
