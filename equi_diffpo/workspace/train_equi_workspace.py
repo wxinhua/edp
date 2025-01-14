@@ -176,14 +176,14 @@ class TrainEquiWorkspace(BaseWorkspace):
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         with JsonLogger(log_path) as json_logger:
             step_log = dict()
-            while self.global_step < cfg.training.train_steps:
+            while self.global_step <= cfg.training.train_steps:
                 #step_log = dict()
                 # ========= train for this epoch ==========
                 train_losses = list()
                 # with tqdm.tqdm(train_dataloader, desc=f"Training step {self.global_step}", 
                 #         leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                 policy = self.model
-                if (self.global_step != 0) and (self.global_step % cfg.training.val_every):
+                if (self.global_step != 0) and (self.global_step % cfg.training.val_every)==0:
                     # train_loss = np.mean(train_losses)
                     # step_log['train_loss'] = train_loss
                     print("here 1")
@@ -266,6 +266,8 @@ class TrainEquiWorkspace(BaseWorkspace):
 
 
                 for batch_idx, batch in enumerate(train_dataloader):
+                    if self.global_step > cfg.training.train_steps:
+                        break
                     print(f"training step:{self.global_step}")
                     policy.train()
                     # # 打印每个batch的键
@@ -314,6 +316,7 @@ class TrainEquiWorkspace(BaseWorkspace):
                         step_log['train_loss'] = train_loss
                         break
                     self.global_step += 1
+                    
 
 
 @hydra.main(

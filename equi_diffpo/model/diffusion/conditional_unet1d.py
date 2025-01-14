@@ -51,7 +51,7 @@ class ConditionalResidualBlock1D(nn.Module):
             returns:
             out : [ batch_size x out_channels x horizon ]
         '''
-        print(f"residualblock x shape is:{x.shape}")
+        #print(f"residualblock x shape is:{x.shape}")
         out = self.blocks[0](x)
         embed = self.cond_encoder(cond)
         if self.cond_predict_scale:
@@ -183,7 +183,7 @@ class ConditionalUnet1D(nn.Module):
         output: (B,T,input_dim)
         """
         sample = einops.rearrange(sample, 'b h t -> b t h')
-        print(f"sample shape:{sample.shape}")
+        #print(f"sample shape:{sample.shape}")
 
         # 1. time
         timesteps = timestep

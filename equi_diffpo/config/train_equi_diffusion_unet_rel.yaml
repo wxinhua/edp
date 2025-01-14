@@ -51,7 +51,7 @@ policy:
   n_action_steps: ${eval:'${n_action_steps}+${n_latency_steps}'}
   n_obs_steps: ${n_obs_steps}
   num_inference_steps: 100
-  crop_shape: [480, 640]
+  crop_shape: [220, 220]
   # crop_shape: null
   diffusion_step_embed_dim: 128
   enc_n_hidden: 128
@@ -72,7 +72,7 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 32
+  batch_size: 24
   num_workers: 4
   shuffle: True
   pin_memory: True
@@ -80,7 +80,7 @@ dataloader:
   drop_last: true
 
 val_dataloader:
-  batch_size: 32
+  batch_size: 24
   num_workers: 8
   shuffle: False
   pin_memory: True
@@ -101,7 +101,7 @@ training:
   lr_scheduler: cosine
   lr_warmup_steps: 500
   #num_epochs: 200
-  train_steps: 5 
+  train_steps: 50000
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
@@ -109,12 +109,12 @@ training:
   # training loop control
   # in epochs
   rollout_every: 50
-  checkpoint_every: 2
-  val_every: 2
-  sample_every: 2
+  checkpoint_every: 25
+  val_every: 25
+  sample_every: 25
   # steps per epoch
   max_train_steps: null
-  max_val_steps: 1
+  max_val_steps: 5
   # misc
   tqdm_interval_sec: 1.0
 

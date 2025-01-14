@@ -6,7 +6,7 @@ from einops import rearrange
 from robomimic.models.base_nets import SpatialSoftmax
 from equi_diffpo.model.common.module_attr_mixin import ModuleAttrMixin
 import equi_diffpo.model.vision.crop_randomizer as dmvc
-from equi_diffpo.model.equi.equi_encoder import EquivariantResEncoderRealCyclic, EquivariantResEncoder76Cyclic, EquivariantVoxelEncoder58Cyclic, EquivariantVoxelEncoder64Cyclic
+from equi_diffpo.model.equi.equi_encoder import EquivariantResEncoderRealCyclic, EquivariantResEncoder76Cyclic, EquivariantResEncoderLargeCyclic
 from equi_diffpo.model.vision.voxel_crop_randomizer import VoxelCropRandomizer
 from equi_diffpo.model.common.rotation_transformer import RotationTransformer
 
@@ -33,7 +33,7 @@ class EquivariantMultiObsEnc(ModuleAttrMixin):
     def __init__(
         self,
         obs_shape=(3, 480, 640),
-        crop_shape=(432, 576),
+        crop_shape=(240, 320),
         n_hidden=128,
         N=8,
         initialize=True,
@@ -44,7 +44,7 @@ class EquivariantMultiObsEnc(ModuleAttrMixin):
         self.N = N
         self.group = gspaces.no_base_space(CyclicGroup(self.N))
         self.token_type = nn.FieldType(self.group, self.n_hidden * [self.group.regular_repr])
-        self.enc_obs = EquivariantResEncoderRealCyclic(obs_channel, self.n_hidden, initialize)
+        self.enc_obs = EquivariantResEncoderLargeCyclic(obs_channel, self.n_hidden, initialize)
         self.enc_ih = InHandEncoder(self.n_hidden).to(self.device)
         self.enc_out = nn.Linear(
             nn.FieldType(
@@ -96,18 +96,20 @@ class EquivariantMultiObsEnc(ModuleAttrMixin):
         obs_1 = self.crop_randomizer(obs_1)
         obs_2 = self.crop_randomizer(obs_2)
         obs_3 = self.crop_randomizer(obs_3)
-
+        #print(f"after crop obs_1 shape:{obs_1.shape}")
         # ih = self.crop_randomizer(ih)
         # ee_rot = self.get6DRotation(ee_quat)
+        check_enc_obs_1 = self.enc_obs(obs_1)
+        #print(f"1 enc_out_1 shape:{check_enc_obs_1.shape}")
 
         enc_out_1 = self.enc_obs(obs_1).tensor.reshape(batch_size * t, -1)  # b d
         enc_out_2 = self.enc_obs(obs_2).tensor.reshape(batch_size * t, -1)  # b d
         enc_out_3 = self.enc_obs(obs_3).tensor.reshape(batch_size * t, -1)  # b d
         # print(f"enc out size is:{enc_out_1.size()}")
-        # print(f"enc_out_1 shape: {enc_out_1.shape}")
-        # print(f"enc_out_2 shape: {enc_out_2.shape}")
-        # print(f"enc_out_3 shape: {enc_out_3.shape}")
-        # print(f"joint_pos shape: {joint_pos.shape}")
+        #print(f"2 enc_out_1 shape: {enc_out_1.shape}")
+        #print(f"2 enc_out_2 shape: {enc_out_2.shape}")
+        #print(f"2 enc_out_3 shape: {enc_out_3.shape}")
+        #print(f"joint_pos shape: {joint_pos.shape}")
 
         features = torch.cat(
             [
@@ -118,6 +120,8 @@ class EquivariantMultiObsEnc(ModuleAttrMixin):
             ],
             dim=1
         )
+        #print(f"features shape:{features.shape}")
+        #print(f"enc_out shape:{self.enc_out.in_type}")
         features = nn.GeometricTensor(features, self.enc_out.in_type)
         out = self.enc_out(features).tensor
         # print("no promble here")

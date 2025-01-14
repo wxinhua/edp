@@ -682,9 +682,9 @@ def load_data(dataset_dir_l, robot_infor, batch_size_train, batch_size_val, chun
         val_dataset = EpisodicDataset(val_dataset_path_fla_list, robot_infor, norm_stats, val_episode_ids, val_episode_len, chunk_size, rank=rank, use_data_aug=use_data_aug, act_norm_class=act_norm_class, use_raw_lang=use_raw_lang, use_depth_image=use_depth_image, exp_type=exp_type, tg_mode=tg_mode)
 
         # train_num_workers = 0
-        train_num_workers = 12 #4 #4 #16
+        train_num_workers = 8 #4 #4 #16
         # val_num_workers = 0
-        val_num_workers = 12 #4 #4 #16
+        val_num_workers = 8 #4 #4 #16
         print(f'Augment images: {train_dataset.augment_images}, train_num_workers: {train_num_workers}, val_num_workers: {val_num_workers}')
         # logger.info(f'Augment images: {train_dataset.augment_images}, train_num_workers: {train_num_workers}, val_num_workers: {val_num_workers}')
         # pin_memory=True

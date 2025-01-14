@@ -59,6 +59,55 @@ class EquiResBlock(torch.nn.Module):
 
         return out
     
+class EquivariantResEncoderLargeCyclic(torch.nn.Module):
+    def __init__(self, obs_channel: int = 3, n_out: int = 128, initialize: bool = True, N=8):
+        super().__init__()
+        self.obs_channel = obs_channel
+        self.group = gspaces.rot2dOnR2(N)
+        self.conv = torch.nn.Sequential(
+            # 220x220
+            nn.R2Conv(
+                nn.FieldType(self.group, obs_channel * [self.group.trivial_repr]),
+                nn.FieldType(self.group, n_out // 8 * [self.group.regular_repr]),
+                kernel_size=5,
+                padding=0,
+                initialize=initialize,
+            ),
+            # 216x216
+            nn.ReLU(nn.FieldType(self.group, n_out // 8 * [self.group.regular_repr]), inplace=True),
+            EquiResBlock(self.group, n_out // 8, n_out // 8, initialize=True),
+            EquiResBlock(self.group, n_out // 8, n_out // 8, initialize=True),
+            nn.PointwiseMaxPool(nn.FieldType(self.group, n_out // 8 * [self.group.regular_repr]), 2),
+            # 108x108
+            EquiResBlock(self.group, n_out // 8, n_out // 4, initialize=True),
+            EquiResBlock(self.group, n_out // 4, n_out // 4, initialize=True),
+            nn.PointwiseMaxPool(nn.FieldType(self.group, n_out // 4 * [self.group.regular_repr]), 3),
+            # 36x36
+            EquiResBlock(self.group, n_out // 4, n_out // 2, initialize=True),
+            EquiResBlock(self.group, n_out // 2, n_out // 2, initialize=True),
+            nn.PointwiseMaxPool(nn.FieldType(self.group, n_out // 2 * [self.group.regular_repr]), 4),
+            # 9x9
+            EquiResBlock(self.group, n_out // 2, n_out, initialize=True),
+            EquiResBlock(self.group, n_out, n_out, initialize=True),
+            nn.PointwiseMaxPool(nn.FieldType(self.group, n_out * [self.group.regular_repr]), 3),
+            # 3x3
+            nn.R2Conv(
+                nn.FieldType(self.group, n_out * [self.group.regular_repr]),
+                nn.FieldType(self.group, n_out * [self.group.regular_repr]),
+                kernel_size=3,
+                padding=0,
+                initialize=initialize,
+            ),
+            nn.ReLU(nn.FieldType(self.group, n_out * [self.group.regular_repr]), inplace=True),
+            # 1x1
+        )
+
+    def forward(self, x) -> nn.GeometricTensor:
+        if type(x) is torch.Tensor:
+            x = nn.GeometricTensor(x, nn.FieldType(self.group, self.obs_channel * [self.group.trivial_repr]))
+        return self.conv(x)
+
+    
 
 class EquivariantResEncoderRealCyclic(torch.nn.Module):
     def __init__(self, obs_channel: int = 3, n_out: int = 128, initialize: bool = True, N=8):
