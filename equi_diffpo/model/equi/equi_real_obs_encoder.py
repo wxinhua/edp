@@ -99,7 +99,7 @@ class EquivariantMultiObsEnc(ModuleAttrMixin):
         #print(f"after crop obs_1 shape:{obs_1.shape}")
         # ih = self.crop_randomizer(ih)
         # ee_rot = self.get6DRotation(ee_quat)
-        check_enc_obs_1 = self.enc_obs(obs_1)
+        #check_enc_obs_1 = self.enc_obs(obs_1)
         #print(f"1 enc_out_1 shape:{check_enc_obs_1.shape}")
 
         enc_out_1 = self.enc_obs(obs_1).tensor.reshape(batch_size * t, -1)  # b d

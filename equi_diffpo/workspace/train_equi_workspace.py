@@ -7,6 +7,7 @@ if __name__ == "__main__":
     sys.path.append(ROOT_DIR)
     os.chdir(ROOT_DIR)
 
+import pickle
 import os
 import hydra
 import torch
@@ -84,7 +85,7 @@ class TrainEquiWorkspace(BaseWorkspace):
         # # configure validation dataset
         # val_dataset = dataset.get_validation_dataset()
         # val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
-        train_dataloader, val_dataloader, _= load_data(
+        train_dataloader, val_dataloader, stats= load_data(
             dataset_dir_l=cfg.dataset_path,
             robot_infor=cfg.robot_infor,  
             batch_size_train=cfg.dataloader.batch_size,
@@ -101,7 +102,10 @@ class TrainEquiWorkspace(BaseWorkspace):
         )
         #print(f"num_batches_per_epoch is:{num_batches_per_epoch}")
         
-        
+        # save dataset stats
+        stats_path = os.path.join(self.output_dir,f'dataset_stats.pkl')
+        with open(stats_path, 'wb') as f:
+            pickle.dump(stats, f)
 
         # self.model.set_normalizer(normalizer)
         # if cfg.training.use_ema:
@@ -230,7 +234,7 @@ class TrainEquiWorkspace(BaseWorkspace):
                             batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                             obs_dict = batch['obs']
                             gt_action = batch['action']
-                            
+                            print(f"obs_dict key:{obs_dict.key()}")
                             result = policy.predict_action(obs_dict)
                             pred_action = result['action_pred']
                             mse = torch.nn.functional.mse_loss(pred_action, gt_action)
