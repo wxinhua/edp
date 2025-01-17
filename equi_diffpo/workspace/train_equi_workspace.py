@@ -234,7 +234,7 @@ class TrainEquiWorkspace(BaseWorkspace):
                             batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                             obs_dict = batch['obs']
                             gt_action = batch['action']
-                            print(f"obs_dict key:{obs_dict.key()}")
+                            
                             result = policy.predict_action(obs_dict)
                             pred_action = result['action_pred']
                             mse = torch.nn.functional.mse_loss(pred_action, gt_action)

@@ -18,26 +18,55 @@ from equi_diffpo.common.pytorch_util import dict_apply
 class InferVLAIL():
     def __init__(self, args=None):
         self.args = args
-        ckpt_dir = self.args['ckpt_dir']
-        if not os.path.isdir(self.args['ckpt_dir']):
+        model_dir = self.args['model_dir']
+        if not os.path.isdir(self.args['model_dir']):
             print(f"ckpt_dir {ckpt_dir} does not exist!!")
+        ckpt_dir = os.path.join(model_dir, self.args['ckpt_name'])
         
-        payload = torch.load(open(ckpt_dir, 'rb'), pickle_module=dill)
+        # 打印检查点路径
+        print(f"Loading checkpoint from: {ckpt_dir}")
+        
+        try:
+            payload = torch.load(open(ckpt_dir, 'rb'), pickle_module=dill)
+            print("Payload loaded successfully.")
+        except Exception as e:
+            print(f"Error loading payload: {e}")
+            return
+        
+        # 打印payload的内容
+        print("Payload keys:", payload.keys())
+        
         self.cfg = payload['cfg']
         cls = hydra.utils.get_class(self.cfg._target_)
         workspace = cls(self.cfg)
         workspace: BaseWorkspace
-        workspace.load_payload(payload, exclude_keys=None, include_keys=None)
+        
+        # try:
+        #     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
+        # except Exception as e:
+        #     print(f"Error loading workspace payload: {e}")
+        #     return
+        
+        
         self.model: BaseImagePolicy = workspace.model
         if self.cfg.training.use_ema:
             self.model = workspace.ema_model
+
+        try:
+            self.model.load_state_dict(payload['state_dicts'], strict=False)
+        except RuntimeError as e:
+            print(f"Error loading model state dict: {e}")
+
+
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model.eval().to(self.device)
         self.exp_type = self.cfg.exp_type
 
-        stats_path = os.path.join(ckpt_dir, f'dataset_stats.pkl')
+        stats_path = os.path.join(model_dir, f'dataset_stats.pkl')
         with open(stats_path, 'rb') as f:
             self.dataset_stats = pickle.load(f)
+
+        print("loaded model")
 
     def on_press(self, key):
         global preparing
@@ -286,8 +315,9 @@ class InferVLAIL():
 
 def get_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ckpt_dir', action='store', type=str, help='ckpt_dir', required=True)
-    parser.add_argument('--tg_mode', type=str, default='mode1')
+    parser.add_argument('--model_dir', action='store', type=str, help='ckpt_dir', required=True)
+    parser.add_argument('--ckpt_name', action='store', type=str, help='ckpt_name', required=True)
+    parser.add_argument('--tg_mode', type=str, default='mode1', required=False)
     parser.add_argument('--episode_len', action='store', type=int, help='episode_len', default=10000, required=False)
     args = parser.parse_args()
     return args
